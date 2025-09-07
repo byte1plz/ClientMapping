@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Conexa CS | GeoMapper</title>
+
+<!-- PWA manifest -->
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0f172a">
+
+<!-- Leaflet -->
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="anonymous">
+
+<style>
+  :root { --bg:#0b1220; --panel:#0f172a; --line:#1f2937; --accent:#4f46e5; --muted:#94a3b8; }
+  html,body { height:100%; margin:0; font-family: system-ui, -apple-system, Segoe UI, Roboto, Arial; background:var(--bg); color:#e5e7eb; }
+  #app { display:grid; grid-template-columns: 320px 1fr; grid-template-rows: 56px 1fr; height:100%; }
+  header { grid-column:1 / -1; display:flex; gap:10px; align-items:center; padding:10px; border-bottom:1px solid var(--line); background:var(--panel); position:sticky; top:0; z-index:5; }
+  header h1 { font-size:16px; margin:0; font-weight:600; }
+  header .actions { display:flex; gap:8px; align-items:center; flex-wrap: wrap; }
+  button, select { background:#111827; color:#e5e7eb; border:1px solid #1f2937; border-radius:8px; padding:7px 10px; font-size:14px; cursor:pointer; }
+  button.primary { background:var(--accent); border-color:var(--accent); }
+  button.ghost { background:transparent; border-color:#374151; }
+  #sidebar { border-right:1px solid #1f2937; background:#0f172a; overflow:auto; }
+  #sidebar .section { padding:10px; border-bottom:1px solid var(--line); }
+  .search { padding:10px; border-bottom:1px solid var(--line); }
+  .search input { width:100%; box-sizing:border-box; background:#0b1220; color:#e5e7eb; border:1px solid #334155; border-radius:10px; padding:8px 12px; outline:none; }
+  #map { height:100%; width:100%; }
+
+  /* Map controls */
+  .leaflet-control.custom { background:#0f172a; color:#e5e7eb; border:1px solid #1f2937; border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.35); padding:8px; }
+  .legend { font-size:12px; line-height:1.1; }
+  .legend .row { display:flex; align-items:center; gap:6px; margin:4px 0; }
+  .dot { width:10px; height:10px; border-radius:50%; display:inline-block; }
+  .dot.green{ background:#22c55e; }
+  .dot.red{ background:#ef4444; }
+  .dot.blue{ background:#3b82f6; }
+
+  /* List with kebab menu */
+  .list { padding:10px; display:flex; flex-direction:column; gap:8px; }
+  .item { position:relative; border:1px solid #1f2937; border-radius:10px; padding:8px; background:#0b1220; cursor:pointer; display:flex; align-items:center; justify-content:space-between; gap:10px; }
+  .item:hover { outline:1px solid #334155; }
+  .item .info { flex:1; min-width:0; }
+  .item .info b { display:block; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  .item .meta { color:var(--muted); font-size:12px; }
+
+  .kebab-btn {
+    background:#0b1220;
+    border:2px solid #ffffff; /* white border */
+    color:#e5e7eb;
+    border-radius:10px;
+    width:44px; height:44px; flex:0 0 44px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:18px; line-height:0;
+  }
+  .kebab-btn:hover { outline:1px solid #ffffff; }
+
+  .menu {
+    position:absolute; top:50px; right:8px;
+    background:#0f172a; border:1px solid #1f2937; border-radius:10px;
+    box-shadow:0 12px 24px rgba(0,0,0,.35);
+    display:none; min-width:180px; z-index:1000;
+  }
+  .menu.show { display:block; }
+  .menu button {
+    display:block; width:100%; text-align:left;
+    border:none; background:transparent; color:#e5e7eb;
+    padding:10px 12px; font-size:14px; cursor:pointer;
+  }
+  .menu button:hover { background:#111827; }
+
+  .tiny { font-size:11px; color:#a1a1aa; }
+  .row { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+  .btn-block { width:100%; }
+  .area-header { font-size:12px; letter-spacing:.3px; color:#cbd5e1; opacity:.9; margin:8px 0 4px 2px; }
+  .thumb { width:100%; max-height:320px; object-fit:cover; border-radius:10px; border:1px solid #1f2937; margin-top:8px; display:block; }
+
+  /* Modal */
+  .modal-backdrop { position:fixed; inset:0; background:rgba(0,0,0,.5); display:none; align-items:center; justify-content:center; z-index:10000; }
+  .modal-backdrop.show { display:flex; }
+  .modal { width:min(560px, 94vw); background:#0f172a; border:1px solid #1f2937; border-radius:14px; box-shadow:0 12px 44px rgba(0,0,0,.45); overflow:hidden; }
+  .modal header { position:unset; border-bottom:1px solid #1f2937; padding:10px 14px; display:flex; align-items:center; justify-content:space-between; gap:8px; }
+  .modal h1 { margin:0; font-size:16px; }
+  .modal .content { padding:16px; display:grid; gap:12px; }
+  .modal label { font-size:12px; color:#cbd5e1; }
+  .modal input[type="text"], .modal select { width:100%; box-sizing:border-box; background:#0b1220; color:#e5e7eb; border:1px solid #334155; border-radius:10px; padding:10px 12px; }
+  .modal .row { justify-content:flex-end; }
+  .hidden { display:none; }
+
+  /* Close (X) button */
+  .btn-close {
+    background:transparent;
+    border:1px solid #374151;
+    color:#e5e7eb;
+    width:32px; height:32px; border-radius:8px;
+    display:flex; align-items:center; justify-content:center;
+    font-size:16px; cursor:pointer;
+  }
+  .btn-close:hover { background:#111827; }
+
+  /* End navigation control (RED) */
+  .leaflet-control.endnav {
+    background:#0f172a; color:#e5e7eb; border:1px solid #1f2937;
+    border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.35);
+    padding:0; overflow:hidden;
+  }
+  .leaflet-control.endnav button {
+    background:#b91c1c; /* red-700 */
+    color:#fff; border:0; padding:8px 12px; cursor:pointer;
+    font-size:12px;
+  }
+  .leaflet-control.endnav button:hover { background:#991b1b; }
+
+  /* Directions control (bottom-right, compact) */
+  .leaflet-control.stepsctl {
+    background:#0f172a; color:#e5e7eb; border:1px solid #1f2937;
+    border-radius:10px; box-shadow:0 6px 20px rgba(0,0,0,.35);
+    padding:6px 8px; max-width:min(340px, 86vw); max-height:30vh; overflow:auto;
+    font-size:12px;
+  }
+  .stepsctl.hidden { display:none; }
+  .stepsctl .hdr { font-weight:600; font-size:12px; margin-bottom:6px; color:#cbd5e1; }
+  .stepsctl .step { padding:5px 6px; border-radius:8px; }
+  .stepsctl .step + .step { margin-top:4px; }
+  .stepsctl .step .d { color:#9ca3af; font-size:11px; }
+  .stepsctl .step.active { background:#111827; border:1px solid #374151; }
+
+  /* Mobile-only elements */
+  .only-mobile { display:none; }
+  @media (max-width: 900px) {
+    .only-mobile { display:inline-flex; }
+    /* hide title on mobile */
+    .brand h1 { display:none; }
+    #app { grid-template-columns: 1fr; grid-template-rows: 56px 260px 1fr; }
+    body.sidebar-collapsed #app { grid-template-rows: 56px 0 1fr; }
+    #sidebar { grid-row:2; }
+    body.sidebar-collapsed #sidebar { display:none; }
+    #map { grid-row:3; }
+    .thumb { max-height: 45vh; }
+  }
+
+  header.site-header {
+    background: #fff !important;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 8px 12px;
+    border-bottom: 1px solid #e5e7eb;
+    flex-wrap: nowrap;
+    overflow-x: auto;
+  }
+  .brand { display:flex; align-items:center; gap:10px; flex: 1 1 auto; min-width:0; }
+  .brand img { height: 32px; width: auto; }
+  .brand h1 {
+    margin: 0; color: darkblue; font-size: 18px; line-height: 1.2;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .actions { display:flex; gap:8px; }
+  /* Rightmost toggle button */
+  #btnTogglePanel { margin-left:auto; border:1px solid #374151; width:36px; height:36px; display:inline-flex; align-items:center; justify-content:center; }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="site-header">
+    <div class="brand">
+      <img src="https://drive.google.com/thumbnail?id=1AbON4wTxGaU0JdTDe8HefuQlcayc7ilO&sz=w1000" alt="Logo">
+      <h1>CNX GeoMapper</h1>
+    </div>
+
+    <div class="actions">
+      <select id="areaFilter" title="Areas">
+        <option value="__ALL__" selected>Areas ▾</option>
+      </select>
+      <button id="btnShowAll">Show All</button>
+    </div>
+
+    <!-- Mobile toggle: rightmost, vertical dots -->
+    <button id="btnTogglePanel" class="only-mobile" aria-expanded="true" title="Toggle panel">⋮</button>
+  </header>
+
+  <aside id="sidebar">
+    <div class="section">
+      <div class="row">
+        <button id="btnPinManual" class="btn-block">Pin Map (custom location)</button>
+        <button id="btnPinAtGPS" class="btn-block">GPS Pin (show current location)</button>
+        <button id="btnExport" class="btn-block">Export JSON</button>
+        <button id="btnImport" class="btn-block">Import JSON</button>
+        <input id="jsonFile" type="file" accept="application/json" class="hidden">
+      </div>
+      <div id="gpsInfo" class="tiny" style="margin-top:6px">GPS: waiting…</div>
+    </div>
+
+    <div class="search"><input id="searchInput" placeholder="Search client name…" autocomplete="off"></div>
+    <div class="list" id="clientList"></div>
+  </aside>
+
+  <div id="map"></div>
+</div>
+
+<!-- Client Modal -->
+<div class="modal-backdrop" id="modalBg">
+  <div class="modal">
+    <header>
+      <h1>Client Details</h1>
+      <button class="btn-close" id="btnModalClose" aria-label="Close">✕</button>
+    </header>
+    <div class="content">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <div class="tiny">Pin ID: <span id="m_id"></span></div>
+          <div class="tiny">Coords: <span id="m_coords"></span></div>
+        </div>
+        <div class="tiny" id="m_time"></div>
+      </div>
+      <div>
+        <label>Area Code</label>
+        <input id="m_area" type="text" placeholder="Area Code" disabled>
+      </div>
+      <div>
+        <label>Client Name</label>
+        <input id="m_client" type="text" placeholder="Client Name" disabled>
+      </div>
+      <div>
+        <label>Status</label>
+        <select id="m_status" disabled>
+          <option value="active">Active</option>
+          <option value="inactive">Inactive</option>
+          <option value="norenew">Doesn't want to renew</option>
+        </select>
+      </div>
+      <div class="row">
+        <input id="m_image" type="file" accept="image/*" class="hidden">
+        <button id="btnEdit">Edit</button>
+        <button id="btnSave" class="primary hidden">Save</button>
+        <button id="btnCancel" class="hidden">Cancel</button>
+        <button id="btnReplaceImg" class="ghost hidden">Replace Image</button>
+        <button id="btnDelete" class="ghost" style="margin-left:auto;color:#fca5a5;border-color:#7f1d1d">Delete</button>
+      </div>
+      <img id="m_thumb" class="thumb hidden" alt="image">
+    </div>
+  </div>
+</div>
+
+<!-- Leaflet -->
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin="anonymous"></script>
+
+<script>
+  // =============== Service worker ===============
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => navigator.serviceWorker.register('./sw.js'));
+  }
+
+  // =============== IndexedDB (images) ===============
+  const DB_NAME = 'clientmap_db_v1';
+  const DB_STORE = 'images';
+  function idbOpen(){ return new Promise((res,rej)=>{ const r=indexedDB.open(DB_NAME,1); r.onupgradeneeded=()=>{ const db=r.result; if(!db.objectStoreNames.contains(DB_STORE)) db.createObjectStore(DB_STORE); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); }); }
+  async function idbSet(key, blob){ const db=await idbOpen(); return new Promise((res,rej)=>{ const tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).put(blob,key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  async function idbGet(key){ const db=await idbOpen(); return new Promise((res,rej)=>{ const tx=db.transaction(DB_STORE,'readonly'); const q=tx.objectStore(DB_STORE).get(key); q.onsuccess=()=>res(q.result||null); q.onerror=()=>rej(q.error); }); }
+  async function idbDel(key){ const db=await idbOpen(); return new Promise((res,rej)=>{ const tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).delete(key); tx.oncomplete=()=>res(); tx.onerror=()=>rej(tx.error); }); }
+  // Clear any persisted images on startup to keep session-only behavior
+  (async()=>{ try{ const db=await idbOpen(); const tx=db.transaction(DB_STORE,'readwrite'); tx.objectStore(DB_STORE).clear(); }catch(e){} })();
+
+  // =============== Pins storage (session-only) ===============
+  let pins = []; // start blank; no localStorage persistence
+  const savePins = ()=>{}; // no-op
+
+  // =============== Map init ===============
+  const map = L.map('map').setView([7.1907, 125.4553], 12);
+
+  // CARTO Positron tiles (no API key)
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
+    maxZoom: 20,
+    subdomains: 'abcd',
+    attribution: '&copy; OpenStreetMap & CARTO'
+  }).addTo(map);
+
+  // ===== Legend =====
+  const LegendControl = L.Control.extend({
+    options: { position: 'bottomleft' },
+    onAdd: function(){
+      const div = L.DomUtil.create('div', 'leaflet-control custom legend');
+      div.innerHTML =
+        '<div class="row"><span class="dot green"></span> Active Clients</div>'+
+        '<div class="row"><span class="dot red"></span> Pending Clients</div>'+
+        '<div class="row"><span class="dot blue"></span> Archived Clients</div>';
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  map.addControl(new LegendControl());
+
+  // UI refs
+  const areaFilter = document.getElementById('areaFilter');
+  const btnShowAll = document.getElementById('btnShowAll');
+  const btnPinManual = document.getElementById('btnPinManual');
+  const btnPinAtGPS = document.getElementById('btnPinAtGPS');
+  const btnExport = document.getElementById('btnExport');
+  const btnImport = document.getElementById('btnImport');
+  const jsonFile = document.getElementById('jsonFile');
+  const listEl = document.getElementById('clientList');
+  const searchInput = document.getElementById('searchInput');
+  const gpsInfo = document.getElementById('gpsInfo');
+  const btnTogglePanel = document.getElementById('btnTogglePanel');
+
+  // Modal refs (client)
+  const modalBg = document.getElementById('modalBg');
+  const m_id = document.getElementById('m_id');
+  const m_coords = document.getElementById('m_coords');
+  const m_time = document.getElementById('m_time');
+  const m_area = document.getElementById('m_area');
+  const m_client = document.getElementById('m_client');
+  const m_status = document.getElementById('m_status');
+  const m_image = document.getElementById('m_image');
+  const m_thumb = document.getElementById('m_thumb');
+  const btnSave = document.getElementById('btnSave');
+  const btnCancel = document.getElementById('btnCancel');
+  const btnReplaceImg = document.getElementById('btnReplaceImg');
+  const btnDelete = document.getElementById('btnDelete');
+  const btnEdit = document.getElementById('btnEdit');
+  const btnModalClose = document.getElementById('btnModalClose');
+
+  let editingId = null;
+
+  // ====== Routing / navigation overlay (OSRM) ======
+  const routeLayer = L.layerGroup().addTo(map);
+  let routeLine = null;
+  let endNavControl = null;
+
+  // Directions control (bottom-right)
+  let stepsCtl, stepsCtlDiv, stepsBodyCtl;
+  const StepsCtl = L.Control.extend({
+    options: { position: 'bottomright' },
+    onAdd: function(){
+      const div = L.DomUtil.create('div','leaflet-control stepsctl hidden');
+      div.innerHTML = '<div class="hdr">Directions</div><div class="body"></div>';
+      stepsCtlDiv = div;
+      stepsBodyCtl = div.querySelector('.body');
+      L.DomEvent.disableClickPropagation(div);
+      return div;
+    }
+  });
+  stepsCtl = new StepsCtl(); map.addControl(stepsCtl);
+
+  // End navigation control (top-right, red)
+  const EndNav = L.Control.extend({
+    options: { position: 'topright' },
+    onAdd: function(){
+      const div = L.DomUtil.create('div','leaflet-control endnav');
+      const btn = L.DomUtil.create('button','',div);
+      btn.textContent = 'End navigation';
+      L.DomEvent.on(btn,'click', (e)=>{ L.DomEvent.stop(e); endNavigation(); });
+      return div;
+    }
+  });
+  function showEndNav(){ if(!endNavControl){ endNavControl = new EndNav(); map.addControl(endNavControl); } }
+  function hideEndNav(){ if(endNavControl){ map.removeControl(endNavControl); endNavControl=null; } }
+  function clearRoute(){
+    routeLayer.clearLayers();
+    if(routeLine){ routeLine.remove(); routeLine=null; }
+    hideEndNav();
+    stepsCtlDiv?.classList.add('hidden');
+    if(stepsBodyCtl) stepsBodyCtl.innerHTML='';
+  }
+
+  function fmtMeters(m){ return m>=1000 ? (m/1000).toFixed(2)+' km' : Math.round(m)+' m'; }
+
+  // Navigation state
+  let navActive = false;
+  let destLatLng = null;
+  let routeCoords = [];
+  let routeSteps = [];
+  let lastRerouteAt = 0;
+
+  async function startNavigation(pin){
+    const start = lastGoodLatLng || liveLatLng;
+    if(!start){ alert('No GPS fix yet. Move outside or enable location, then try again.'); return; }
+    await recalcRouteFrom(L.latLng(start.lat, start.lng), L.latLng(pin.lat, pin.lng));
+    navActive = true;
+  }
+
+  function renderSteps(steps){
+    stepsBodyCtl.innerHTML = '';
+    steps.forEach((s, i)=>{
+      const d = fmtMeters(s.distance || 0);
+      const name = (s.name && s.name.trim()) ? ` onto <b>${escapeHTML(s.name)}</b>` : '';
+      const maneuver = s.maneuver && s.maneuver.instruction
+                    ? s.maneuver.instruction
+                    : (s.maneuver && s.maneuver.type ? s.maneuver.type.replace(/_/g,' ') : 'Proceed');
+      const div = document.createElement('div');
+      div.className = 'step' + (i===0 ? ' active' : '');
+      div.innerHTML = `<div>${escapeHTML(maneuver)}${name}</div><div class="d">${d}</div>`;
+      stepsBodyCtl.appendChild(div);
+    });
+    stepsCtlDiv.classList.remove('hidden');
+  }
+  function setActiveStep(idx){
+    const nodes = Array.from(stepsBodyCtl.children);
+    nodes.forEach((n,i)=> n.classList.toggle('active', i===idx));
+  }
+  function minDistanceToRoute(latlng){
+    if(!routeCoords.length) return Infinity;
+    let min = Infinity;
+    for(const [lat,lng] of routeCoords){
+      const d = haversineDistanceMeters({lat, lng}, {lat:latlng.lat, lng:latlng.lng});
+      if(d < min) min = d;
+      if(min < 15) break;
+    }
+    return min;
+  }
+  function highlightProgress(latlng){
+    if(!routeSteps.length) return;
+    let bestIdx = 0, bestD = Infinity;
+    routeSteps.forEach((s, i)=>{
+      const loc = s.maneuver && s.maneuver.location;
+      if(!loc) return;
+      const lng = loc[0], lat = loc[1];
+      const d = haversineDistanceMeters({lat, lng}, {lat:latlng.lat, lng:latlng.lng});
+      if(d < bestD){ bestD = d; bestIdx = i; }
+    });
+    setActiveStep(bestIdx);
+  }
+
+  async function recalcRouteFrom(from, to){
+    clearRoute();
+    destLatLng = to;
+    const url = `https://router.project-osrm.org/route/v1/driving/${from.lng},${from.lat};${to.lng},${to.lat}?overview=full&geometries=geojson&steps=true&alternatives=false`;
+    let data;
+    try{
+      const res = await fetch(url, {mode:'cors'});
+      if(!res.ok) throw new Error('Routing server error');
+      data = await res.json();
+      if(data.code !== 'Ok' || !data.routes || !data.routes.length) throw new Error('No route found');
+    }catch(err){
+      console.error(err);
+      alert('Unable to fetch driving directions right now.');
+      navActive = false;
+      return;
+    }
+
+    const route = data.routes[0];
+    routeCoords = route.geometry.coordinates.map(([lng,lat])=> [lat,lng]);
+    routeSteps  = (route.legs||[]).flatMap(l => l.steps || []);
+    lastRerouteAt = Date.now();
+
+    routeLine = L.polyline(routeCoords, {color:'#4f46e5', weight:5, opacity:0.95}).addTo(map);
+    L.circleMarker(from, {radius:7, color:'#3b82f6', fillColor:'#3b82f6', fillOpacity:0.9, weight:2})
+      .addTo(routeLayer).bindTooltip('You', {permanent:false, direction:'top'});
+    L.circleMarker(to, {radius:8, color:'#a78bfa', fillColor:'#a78bfa', fillOpacity:0.9, weight:2})
+      .addTo(routeLayer).bindTooltip('Client', {permanent:false, direction:'top'});
+
+    map.fitBounds(L.latLngBounds(routeCoords).pad(0.15));
+    renderSteps(routeSteps);
+    showEndNav();
+  }
+
+  function endNavigation(){
+    clearRoute();
+    navActive = false;
+    destLatLng = null;
+    routeCoords = [];
+    routeSteps = [];
+  }
+
+  // =============== Filtering helpers ===============
+  function getFilteredPins(){
+    const sel = areaFilter.value;
+    const term = (searchInput?.value || '').trim().toLowerCase();
+    return pins.filter(p => (sel==='__ALL__' || p.area===sel) && (!term || (p.client||'').toLowerCase().includes(term)));
+  }
+
+  // =============== Markers ===============
+  const markers = new Map(); // id -> marker
+  function statusColor(s){
+    if(s==='active') return '#22c55e';
+    if(s==='inactive') return '#ef4444';
+    if(s==='norenew') return '#3b82f6';
+    return '#e5e7eb';
+  }
+  function syncMarkers(){
+    markers.forEach(m=>map.removeLayer(m));
+    markers.clear();
+    const arr = getFilteredPins();
+    arr.forEach(p=>{
+      const m = L.circleMarker([p.lat,p.lng], {
+        radius:8, weight:2,
+        color:statusColor(p.status),
+        fillColor:statusColor(p.status),
+        fillOpacity:0.9
+      }).addTo(map).on('click', ()=> openModal(p.id));
+      markers.set(p.id, m);
+    });
+  }
+
+  // =============== Sidebar List (kebab menus) ===============
+  function renderList(){
+    const areas = Array.from(new Set(pins.map(p=>p.area).filter(Boolean))).sort();
+    areaFilter.innerHTML = '<option value="__ALL__">Areas ▾</option>' +
+      areas.map(a=>`<option value="${escapeHTML(a)}">${escapeHTML(a)}</option>`).join('');
+
+    const groups = {};
+    getFilteredPins().forEach(p=>{ const k=p.area||'(No Area)'; (groups[k]=groups[k]||[]).push(p); });
+
+    listEl.innerHTML='';
+    Object.keys(groups).sort().forEach(area=>{
+      const h=document.createElement('div'); h.className='area-header'; h.textContent=`${area} (${groups[area].length})`; listEl.appendChild(h);
+
+      groups[area].sort((a,b)=> (a.client||'').localeCompare(b.client||'')).forEach(p=>{
+        const row=document.createElement('div'); row.className='item'; row.dataset.id=p.id;
+
+        const info=document.createElement('div'); info.className='info';
+        const nameEl=document.createElement('b'); nameEl.textContent=p.client||'Unnamed';
+        const meta=document.createElement('div'); meta.className='meta';
+        meta.textContent = `${new Date(p.ts).toLocaleString()} • ${p.lat.toFixed(7)}, ${p.lng.toFixed(7)}`;
+        info.appendChild(nameEl); info.appendChild(meta);
+
+        const kebab=document.createElement('button');
+        kebab.className='kebab-btn'; kebab.title='Actions'; kebab.innerHTML='&#8942;';
+
+        const menu=document.createElement('div'); menu.className='menu';
+        const btnEditClient=document.createElement('button'); btnEditClient.textContent='Edit client';
+        const btnNavigate=document.createElement('button'); btnNavigate.textContent='Navigate';
+        menu.appendChild(btnEditClient); menu.appendChild(btnNavigate);
+
+        row.addEventListener('click', ()=>{ focusPin(p.id); });
+        kebab.addEventListener('click', (ev)=>{
+          ev.stopPropagation();
+          document.querySelectorAll('.menu.show').forEach(m=> m!==menu && m.classList.remove('show'));
+          menu.classList.toggle('show');
+        });
+
+        btnEditClient.addEventListener('click', (ev)=>{ ev.stopPropagation(); menu.classList.remove('show'); openModal(p.id); });
+        btnNavigate.addEventListener('click', (ev)=>{ ev.stopPropagation(); menu.classList.remove('show'); startNavigation(p); });
+
+        document.addEventListener('click', (ev)=>{ if(!row.contains(ev.target)) menu.classList.remove('show'); });
+
+        row.appendChild(info); row.appendChild(kebab); row.appendChild(menu);
+        listEl.appendChild(row);
+      });
+    });
+  }
+
+  areaFilter.addEventListener('change', ()=>{ syncMarkers(); renderList(); fitToFilter(); clearRoute(); });
+  btnShowAll.addEventListener('click', ()=>{ areaFilter.value='__ALL__'; syncMarkers(); renderList(); fitToFilter(); clearRoute(); });
+  if (searchInput) searchInput.addEventListener('input', ()=>{ syncMarkers(); renderList(); clearRoute(); });
+
+  function fitToFilter(){
+    const arr = getFilteredPins();
+    if(!arr.length) return;
+    const b=L.latLngBounds(arr.map(p=>[p.lat,p.lng]));
+    map.fitBounds(b.pad(0.2));
+  }
+
+  // =============== Add pins ===============
+  let manualMode=false;
+  btnPinManual.addEventListener('click', ()=>{
+    manualMode=true;
+    alert('Click the map to place a pin.');
+  });
+  map.on('click', async (e)=>{
+    if(!manualMode) return;
+    manualMode=false;
+    await createPinAt(e.latlng.lat,e.latlng.lng,'tap');
+  });
+
+  btnPinAtGPS.addEventListener('click', async ()=>{
+    if(!navigator.geolocation) return alert('Geolocation not supported.');
+    const useLL = lastGoodLatLng || liveLatLng;
+
+    if (useLL) {
+      if (liveAccuracy && liveAccuracy > 30) {
+        const ok = confirm(`Current GPS accuracy is about ±${Math.round(liveAccuracy)} m.\nDrop pin anyway?`);
+        if (!ok) return;
+      }
+      await createPinAt(useLL.lat, useLL.lng, 'gps');
+      return;
+    }
+
+    try{
+      const pos = await new Promise((res,rej)=>navigator.geolocation.getCurrentPosition(
+        res, rej, { enableHighAccuracy:true, timeout:15000, maximumAge:0 }
+      ));
+      const acc = pos.coords.accuracy || 0;
+      if (acc > 30) {
+        const ok = confirm(`Current GPS accuracy is about ±${Math.round(acc)} m.\nDrop pin anyway?`);
+        if (!ok) return;
+      }
+      await createPinAt(pos.coords.latitude, pos.coords.longitude, 'gps');
+    }catch(err){
+      alert('GPS unavailable: '+(err && err.message || err));
+    }
+  });
+
+  async function createPinAt(lat,lng,source){
+    const id = 'p_'+Date.now()+'_'+Math.random().toString(36).slice(2,6);
+    const pin = { id, lat, lng, area:'', client:'', status:'active', notes:'', ts: Date.now(), source, imageKey: null, acc: source==='gps' ? (liveAccuracy || null) : null };
+    pins.push(pin); savePins(); syncMarkers(); renderList(); openModal(id);
+  }
+
+  // =============== Focus & highlight (no modal) ===============
+  function focusPin(id){
+    const p = pins.find(x=>x.id===id); if(!p) return;
+    map.setView([p.lat,p.lng], Math.max(map.getZoom(),17));
+    const hl = L.circleMarker([p.lat,p.lng], {radius:14, weight:3, color:'#4f46e5', opacity:0.9, fillOpacity:0}).addTo(map);
+    setTimeout(()=> map.removeLayer(hl), 1500);
+  }
+
+  // =============== Modal logic (Client) ===============
+  function setEditable(edit){
+    [m_area,m_client,m_status].forEach(i=> i.disabled = !edit);
+    btnEdit.classList.toggle('hidden', edit);
+    btnSave.classList.toggle('hidden', !edit);
+    btnCancel.classList.toggle('hidden', !edit);
+    btnReplaceImg.classList.toggle('hidden', !edit);
+  }
+  function openModal(id){
+    const p = pins.find(x=>x.id===id); if(!p) return;
+    editingId = id; setEditable(false);
+    m_id.textContent = id;
+    m_time.textContent = new Date(p.ts).toLocaleString();
+    m_area.value = p.area||''; m_client.value = p.client||''; m_status.value = p.status||'active';
+    m_coords.textContent = `${p.lat.toFixed(7)}, ${p.lng.toFixed(7)}` + (p.acc ? ` • ±${Math.round(p.acc)} m` : '');
+    m_thumb.classList.add('hidden'); m_thumb.removeAttribute('src');
+    if(p.imageKey){ idbGet(p.imageKey).then(blob=>{ if(blob){ m_thumb.src = URL.createObjectURL(blob); m_thumb.classList.remove('hidden'); } }); }
+    modalBg.classList.add('show');
+  }
+  function closeModal(){ modalBg.classList.remove('show'); editingId=null; m_image.value=''; }
+  modalBg.addEventListener('click', (e)=>{ if(e.target===modalBg) closeModal(); });
+  modalBg.querySelector('.modal').addEventListener('click', (e)=> e.stopPropagation());
+  btnModalClose.addEventListener('click', closeModal);
+  btnEdit.addEventListener('click', ()=> setEditable(true));
+  btnCancel.addEventListener('click', ()=>{ setEditable(false); openModal(editingId); });
+  btnReplaceImg.addEventListener('click', ()=> m_image.click());
+  btnSave.addEventListener('click', async ()=>{
+    const p = pins.find(x=>x.id===editingId); if(!p) return;
+    p.area = m_area.value.trim();
+    p.client = m_client.value.trim();
+    p.status = m_status.value;
+    if(m_image.files && m_image.files[0]){
+      if(p.imageKey) await idbDel(p.imageKey);
+      p.imageKey = 'img_'+p.id; await idbSet(p.imageKey, m_image.files[0]);
+    }
+    renderList(); syncMarkers(); setEditable(false); openModal(editingId);
+  });
+  btnDelete.addEventListener('click', async ()=>{
+    const i = pins.findIndex(x=>x.id===editingId); if(i<0) return;
+    if(!confirm('Delete this pin?')) return;
+    const p = pins[i]; if(p.imageKey) await idbDel(p.imageKey);
+    pins.splice(i,1); renderList(); syncMarkers(); closeModal();
+  });
+
+  // =============== Export / Import ===============
+  function buildExport(){
+    return {
+      exported_at: new Date().toISOString(),
+      app: 'CNX GeoMapper',
+      version: 1,
+      pins: pins.map(p => ({
+        id:p.id, lat:p.lat, lng:p.lng, area:p.area, client:p.client,
+        status:p.status, notes:p.notes, ts:p.ts, source:p.source, acc:p.acc
+      }))
+    };
+  }
+
+  async function copyToClipboardSmart(text){
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      try {
+        const ta = document.createElement('textarea');
+        ta.value = text;
+        ta.style.position='fixed'; ta.style.left='-9999px';
+        document.body.appendChild(ta);
+        ta.select(); document.execCommand('copy');
+        document.body.removeChild(ta);
+        return true;
+      } catch {
+        return false;
+      }
+    }
+  }
+
+  async function exportJSON(){
+    const payload = buildExport();
+    const jsonStr = JSON.stringify(payload, null, 2);
+    const ok = await copyToClipboardSmart(jsonStr);
+    alert(ok ? 'Exported: JSON copied to clipboard.' : 'Copy failed. Long-press and select all to copy: \n\n' + jsonStr);
+  }
+
+  function validateImported(obj){
+    if(!obj || typeof obj !== 'object') return false;
+    if(!Array.isArray(obj.pins)) return false;
+    for(const p of obj.pins){
+      if(typeof p.lat!=='number' || typeof p.lng!=='number') return false;
+      if(typeof p.id!=='string') return false;
+    }
+    return true;
+  }
+
+  function importJSONFromObject(obj){
+    pins = obj.pins.map(p=>({
+      id: String(p.id),
+      lat: Number(p.lat),
+      lng: Number(p.lng),
+      area: p.area || '',
+      client: p.client || '',
+      status: p.status || 'active',
+      notes: p.notes || '',
+      ts: p.ts || Date.now(),
+      source: p.source || 'import',
+      acc: (typeof p.acc==='number' ? p.acc : null),
+      imageKey: null
+    }));
+    clearRoute();
+    renderList();
+    syncMarkers();
+    fitToFilter();
+    alert(`Imported ${pins.length} pin(s).`);
+  }
+
+  btnExport.addEventListener('click', exportJSON);
+
+  btnImport.addEventListener('click', ()=>{
+    jsonFile.value = '';
+    jsonFile.click();
+  });
+  jsonFile.addEventListener('change', async ()=>{
+    const f = jsonFile.files && jsonFile.files[0];
+    if(!f) return;
+    try{
+      const text = await f.text();
+      const obj = JSON.parse(text);
+      if(!validateImported(obj)) throw new Error('Invalid JSON format.');
+      importJSONFromObject(obj);
+    }catch(e){
+      console.error(e);
+      alert('Import failed: ' + e.message);
+    }
+  });
+
+  // =============== Helpers ===============
+  function escapeHTML(s){
+    return (s||'').replace(/[&<>"']/g, c => ({ "&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;" }[c]));
+  }
+
+  function haversineDistanceMeters(a, b){
+    const R = 6371000;
+    const toRad = d => d * Math.PI / 180;
+    const dLat = toRad(b.lat - a.lat);
+    const dLng = toRad(b.lng - a.lng);
+    const lat1 = toRad(a.lat), lat2 = toRad(b.lat);
+    const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLng/2)**2;
+    return 2*R*Math.asin(Math.sqrt(h));
+  }
+
+  // ===== GPS live marker + info bar (always follow) =====
+  let liveLatLng = null;
+  let liveAccuracy = 0;
+  let liveHeading = null;
+  let lastGoodLatLng = null;
+  const ACC_GOOD = 30; const ACC_OK = 60;
+
+  let arrowPoly = null;
+  let accCircle = null;
+  let followMe = true;
+
+  function ensureLiveLayers(){
+    if(!arrowPoly){
+      arrowPoly = L.polygon([[0,0],[0,0],[0,0]], {
+        color:'#3b82f6', weight:2, fillColor:'#93c5fd', fillOpacity:0.9
+      }).addTo(map);
+    }
+    if(!accCircle){
+      accCircle = L.circle([0,0], {
+        radius:1, color:'#93c5fd', weight:1, opacity:0.6, fillOpacity:0.05
+      }).addTo(map);
+    }
+  }
+
+  function redrawArrow(){
+    if(!liveLatLng) return;
+    const rTip = 18, rSide = 10;
+    const ang = (liveHeading!=null ? liveHeading : 0) * Math.PI/180;
+    const base = map.latLngToLayerPoint(liveLatLng);
+    const tip   = L.point(base.x + rTip*Math.sin(ang), base.y - rTip*Math.cos(ang));
+    const left  = L.point(base.x - rSide*Math.cos(ang), base.y - rSide*Math.sin(ang));
+    const right = L.point(base.x + rSide*Math.cos(ang), base.y + rSide*Math.sin(ang));
+    arrowPoly.setLatLngs([ map.layerPointToLatLng(tip), map.layerPointToLatLng(left), map.layerPointToLatLng(right) ]);
+  }
+
+  if(navigator.geolocation){
+    navigator.geolocation.watchPosition(pos=>{
+      const c = pos.coords;
+      liveLatLng = L.latLng(c.latitude, c.longitude);
+      liveAccuracy = c.accuracy || 0;
+      liveHeading = (typeof c.heading === 'number' && !isNaN(c.heading)) ? c.heading : null;
+
+      if (liveAccuracy && liveAccuracy <= ACC_GOOD) lastGoodLatLng = liveLatLng;
+
+      ensureLiveLayers();
+      accCircle.setLatLng(liveLatLng).setRadius(liveAccuracy);
+      redrawArrow();
+
+      const warn = liveAccuracy>ACC_OK ? ' • low accuracy' : (liveAccuracy>ACC_GOOD ? ' • fair' : '');
+      gpsInfo.textContent = `GPS: ${c.latitude.toFixed(7)}, ${c.longitude.toFixed(7)} • ±${Math.round(liveAccuracy)} m${warn}` + (liveHeading!=null? ` • ${Math.round(liveHeading)}°` : '');
+
+      const target = lastGoodLatLng || liveLatLng;
+      if (followMe && target) map.setView(target, Math.max(map.getZoom(), 16));
+
+      // Navigation progress + reroute
+      if (navActive && liveLatLng) {
+        highlightProgress(liveLatLng);
+        const off = minDistanceToRoute(liveLatLng);
+        if (off > 50 && Date.now() - lastRerouteAt > 8000 && destLatLng) {
+          recalcRouteFrom(liveLatLng, destLatLng);
+        }
+      }
+    }, err=>{
+      gpsInfo.textContent = 'GPS: ' + (err && err.message || 'error');
+    }, { enableHighAccuracy:true, maximumAge: 0, timeout: 25000 });
+
+    map.on('zoom', redrawArrow);
+  }
+
+  // Tap/click GPS bar to copy current coords
+  gpsInfo.onclick = () => {
+    if (!liveLatLng) return;
+    const text = `${liveLatLng.lat.toFixed(7)}, ${liveLatLng.lng.toFixed(7)}`;
+    navigator.clipboard?.writeText(text);
+  };
+
+  // =============== Mobile sidebar toggle ===============
+  btnTogglePanel.addEventListener('click', ()=>{
+    const collapsed = document.body.classList.toggle('sidebar-collapsed');
+    btnTogglePanel.setAttribute('aria-expanded', String(!collapsed));
+    setTimeout(()=> map.invalidateSize(), 150);
+  });
+
+  // =============== Initial render ===============
+  renderList(); syncMarkers();
+  setTimeout(()=> map.invalidateSize(), 0);
+</script>
+</body>
+</html>
